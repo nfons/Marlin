@@ -83,7 +83,11 @@ enum processID {
 
   // Window ID
   Print_window,
-  Popup_Window
+  Popup_Window,
+
+  #ifdef FILAMENT_LOAD_UNLOAD_GCODES
+    FilamentChange
+  #endif
 };
 
 // Picture ID
@@ -344,6 +348,7 @@ void HMI_Temperature(void);       // Temperature menu
 void HMI_Motion(void);            // Sports menu
 void HMI_Info(void);              // Information menu
 void HMI_Tune(void);              // Adjust the menu
+void HMI_FilamentChange(void);
 
 #if HAS_HOTEND
   void HMI_PLAPreheatSetting(void); // PLA warm-up setting

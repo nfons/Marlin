@@ -153,7 +153,8 @@ select_t select_page{0}, select_file{0}, select_print{0}, select_prepare{0}
          , select_speed{0}
          , select_acc{0}
          , select_corner{0}
-         , select_step{0}
+         , select_step{0},
+         select_fila{0}
          // , select_leveling{0}
          ;
 
@@ -484,6 +485,12 @@ inline void Prepare_Item_Move(const uint8_t row) {
   Draw_More_Icon(row);
 }
 
+inline void Prepare_Item_FilamentChange(const uint8_t row) {
+  DWIN_Draw_String(false, true, font8x16, White, Background_black, 75, MBASE(row), (char*)"Filament Change");
+  Draw_Menu_Line(row, ICON_Extruder);
+  Draw_More_Icon(row);
+}
+
 inline void Prepare_Item_Disable(const uint8_t row) {
   if (HMI_flag.language_chinese)
     DWIN_Frame_AreaCopy(1, 204, 70, 271 - 12, 479 - 397, LBLX, MBASE(row));
@@ -589,6 +596,8 @@ inline void Draw_Prepare_Menu() {
   if (PVISI(6)) Prepare_Item_ABS(PSCROL(6));        // Preheat ABS
   if (PVISI(7)) Prepare_Item_Cool(PSCROL(7));       // Cooldown
   if (PVISI(8)) Prepare_Item_Lang(PSCROL(8));       // Language CN/EN
+  if (PVISI(8)) Prepare_Item_FilamentChange(PSCROL(9));     // Filament Change
+
 
   if (select_prepare.now) Draw_Menu_Cursor(PSCROL(select_prepare.now));
 }
@@ -1126,8 +1135,8 @@ void HMI_Zoffset(void) {
         if (WITHIN(zprobe_zoffset - last_zoffset, Z_PROBE_OFFSET_RANGE_MIN, Z_PROBE_OFFSET_RANGE_MAX))
           probe.offset.z = zprobe_zoffset;
         settings.save();
-      #elif ENABLED(BABYSTEPPING)
-        babystep.add_mm(Z_AXIS, (zprobe_zoffset - last_zoffset));
+        #if ENABLED(BABYSTEPPING)
+          babystep.add_mm(Z_AXIS, (zprobe_zoffset - last_zoffset));
       #else
         UNUSED(zprobe_zoffset - last_zoffset);
       #endif
@@ -1454,6 +1463,40 @@ void HMI_StepXYZE(void) {
     // Step value
     DWIN_Draw_FloatValue(true, true, 0, font8x16, White, Select_Color, 3, 1, 210, MBASE(select_step.now), HMI_ValueStruct.Max_Step);
   }
+}
+
+void HMI_FilamentChange(void) {
+  ENCODER_DiffState encoder_diffState = Encoder_ReceiveAnalyze();
+  if (encoder_diffState == ENCODER_DIFF_NO) return;
+  // Avoid flicker by updating only the previous menu
+  if (encoder_diffState == ENCODER_DIFF_CW) {
+    if (select_fila.inc(2)) Move_Highlight(1, select_fila.now);
+  }
+  else if (encoder_diffState == ENCODER_DIFF_CCW) {
+    if (select_fila.dec()) Move_Highlight(-1, select_fila.now);
+  }
+  else if (encoder_diffState == ENCODER_DIFF_ENTER) {
+    switch (select_fila.now) {
+      case 0: // back
+        checkkey = Prepare;
+        select_prepare.set(1);
+        index_prepare = MROWS;
+        Draw_Prepare_Menu();
+        break;
+      case 1: // unload
+        queue.inject_P(PSTR("M702"));
+        break;
+      case 2:
+        queue.inject_P(PSTR("M701"));
+        break;
+      default:
+      break;
+    }
+  }
+  Draw_Back_First(select_fila.now == 0);
+  if (select_fila.now) Draw_Menu_Cursor(select_fila.now);
+  LOOP_L_N(i, MROWS) Draw_Menu_Line(i + 1);
+  DWIN_UpdateLCD();
 }
 
 void update_variable(void) {
@@ -2133,6 +2176,16 @@ inline void Draw_Move_Menu() {
   LOOP_L_N(i, MROWS) Draw_Menu_Line(i + 1, ICON_MoveX + i);
 }
 
+inline void Draw_FilamentChange_Menu() {
+  Clear_Main_Window();
+  Draw_Title("Filament Change Menu");
+  
+  DWIN_Draw_String(false, true, font8x16, White, Background_black, 60, MBASE(1), (char*)"Unload Filament");
+  DWIN_Draw_String(false, true, font8x16, White, Background_black, 60, MBASE(2), (char*)"Load Filament");
+  Draw_Back_First(select_fila.now == 0);
+  if (select_fila.now) Draw_Menu_Cursor(select_fila.now);
+}
+
 #include "../../libs/buzzer.h"
 
 void HMI_AudioFeedback(const bool success=true) {
@@ -2152,7 +2205,7 @@ void HMI_Prepare(void) {
 
   // Avoid flicker by updating only the previous menu
   if (encoder_diffState == ENCODER_DIFF_CW) {
-    if (select_prepare.inc(8)) {
+    if (select_prepare.inc(9)) {
       if (select_prepare.now > MROWS && select_prepare.now > index_prepare) {
         index_prepare = select_prepare.now;
 
@@ -2166,6 +2219,7 @@ void HMI_Prepare(void) {
         if (index_prepare == 6) Prepare_Item_ABS(MROWS);
         else if (index_prepare == 7) Prepare_Item_Cool(MROWS);
         else if (index_prepare == 8) Prepare_Item_Lang(MROWS);
+        else if (index_prepare == 9) Prepare_Item_FilamentChange(MROWS);
       }
       else {
         Move_Highlight(1, select_prepare.now + MROWS - index_prepare);
@@ -2188,6 +2242,7 @@ void HMI_Prepare(void) {
         if (index_prepare == 6) Prepare_Item_Move(0);
         else if (index_prepare == 7) Prepare_Item_Disable(0);
         else if (index_prepare == 8) Prepare_Item_Home(0);
+        else if (index_prepare == 9) Prepare_Item_FilamentChange(0);
       }
       else {
         Move_Highlight(-1, select_prepare.now + MROWS - index_prepare);
@@ -2261,6 +2316,12 @@ void HMI_Prepare(void) {
         }
         Draw_Prepare_Menu();
         break;
+      case 9: // Filament Change
+        #ifdef FILAMENT_LOAD_UNLOAD_GCODES
+          checkkey = FilamentChange;
+          Draw_FilamentChange_Menu();
+        #endif
+      break;
       default:
         break;
     }
@@ -3540,6 +3601,9 @@ void DWIN_HandleScreen(void) {
     case MaxAcceleration_value: HMI_MaxAccelerationXYZE(); break;
     case MaxCorner_value:       HMI_MaxCornerXYZE(); break;
     case Step_value:            HMI_StepXYZE(); break;
+    #ifdef FILAMENT_LOAD_UNLOAD_GCODES
+      case FilamentChange:        HMI_FilamentChange(); break;
+    #endif
     default: break;
   }
 }
